@@ -41,6 +41,6 @@ python grab.py --save-dir "/path/to/save/directory"
 ## Requirements
 
 - Python 3.x
-- PyQt5
+- PySide6
 - keyboard
 - requests

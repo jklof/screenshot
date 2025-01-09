@@ -8,13 +8,13 @@ import requests
 import webbrowser
 import keyboard
 import threading
-from PyQt5.QtWidgets import QApplication, QMainWindow, QRubberBand, QSystemTrayIcon, QMenu, QAction, QActionGroup
-from PyQt5.QtCore import QObject, QRect, Qt, pyqtSignal, QBuffer, QByteArray, QPoint
-from PyQt5.QtGui import QPixmap, QIcon, QCursor, QColor, QPainter, QPen
+from PySide6.QtWidgets import QApplication, QMainWindow, QRubberBand, QSystemTrayIcon, QMenu
+from PySide6.QtGui import QAction, QActionGroup, QPixmap, QIcon, QCursor, QColor, QPainter, QPen
+from PySide6.QtCore import QObject, QRect, Qt, Signal, QBuffer, QByteArray, QPoint
 
 
 class Uploader(QObject):
-    uploadedsignal = pyqtSignal(str)
+    uploadedsignal = Signal(str)
 
     def __init__(self, save_dir=None):
         super().__init__()
@@ -35,7 +35,7 @@ class Uploader(QObject):
 
     def stop(self):
         with self.condition:
-            self.queue.insert(0,None)
+            self.queue.insert(0, None)
             self.condition.notify()
         self.thread.join(timeout=15.0)
 
@@ -49,7 +49,6 @@ class Uploader(QObject):
             while not self.queue:
                 self.condition.wait()
             return self.queue.pop(0)
-
 
     def save(self, buffer, save_dir):
         try:
@@ -83,12 +82,11 @@ class Uploader(QObject):
         qbuffer.close()
         return BytesIO(qbytearray.data())
 
-
     def _process_queue(self):
         while (image := self.dequeue()) is not None:
             png_buffer = self.to_png(image)
             save_dir = self.get_save_dir()
-            uri = self.save(png_buffer,save_dir) if save_dir else self.upload(png_buffer)
+            uri = self.save(png_buffer, save_dir) if save_dir else self.upload(png_buffer)
             self.uploadedsignal.emit(uri)
 
 
@@ -108,7 +106,7 @@ def create_icon(size=256):
 
 
 class ScreenCapture(QMainWindow):
-    hotkey_triggered = pyqtSignal()
+    hotkey_triggered = Signal()
 
     def __init__(self, save_dir=None):
         super().__init__()
@@ -126,28 +124,24 @@ class ScreenCapture(QMainWindow):
         self.hotkey_triggered.connect(self._start_capture)
 
     def _setup_tray(self):
-
         menu = QMenu()
 
-        # Add aspect ratio submenu
         aspect_menu = menu.addMenu("Aspect Ratio")
         ratios = {
             "Free": None,
             "1:1": 1.0,
-            "4:3": 4/3,
-            "16:9": 16/9,
-            "2:3": 2/3,
-            "3:2": 3/2
+            "4:3": 4 / 3,
+            "16:9": 16 / 9,
+            "2:3": 2 / 3,
+            "3:2": 3 / 2
         }
-        # Create action group to make radio-button behavior
         action_group = QActionGroup(self)
         action_group.setExclusive(True)
-        
-        # Add actions to both group and menu
+
         for name, ratio in ratios.items():
             action = QAction(name, self)
             action.setCheckable(True)
-            action.setChecked(ratio == self.aspect_ratio)  # Check "Free" by default
+            action.setChecked(ratio == self.aspect_ratio)
             action.triggered.connect(lambda _, r=ratio: self._set_aspect_ratio(r))
             action_group.addAction(action)
             aspect_menu.addAction(action)
@@ -158,14 +152,13 @@ class ScreenCapture(QMainWindow):
             action = menu.addAction(f"Screen {i + 1} - {screen.geometry().width()}x{screen.geometry().height()}")
             action.triggered.connect(lambda _, s=screen: self._start_capture(s))
 
-
         if self.save_dir:
             menu.addSeparator()
             action = QAction("Uploading", self)
             action.setCheckable(True)
-            action.setChecked( self.uploader.get_save_dir() is None )
+            action.setChecked(self.uploader.get_save_dir() is None)
             menu.addAction(action)
-            action.toggled.connect(lambda isChecked : self.uploader.set_save_dir(None if isChecked else self.save_dir))
+            action.toggled.connect(lambda isChecked: self.uploader.set_save_dir(None if isChecked else self.save_dir))
 
         menu.addSeparator()
         menu.addAction("Exit", self._exit)
@@ -183,14 +176,11 @@ class ScreenCapture(QMainWindow):
 
         dx = current_pos.x() - start_pos.x()
         dy = current_pos.y() - start_pos.y()
-        
-        # Calculate width and height based on aspect ratio
+
         if abs(dx) * abs(self.aspect_ratio) > abs(dy):
-            # Width is dominant
             width = dx
             height = int(abs(width) / self.aspect_ratio * (1 if dy >= 0 else -1))
         else:
-            # Height is dominant
             height = dy
             width = int(abs(height) * self.aspect_ratio * (1 if dx >= 0 else -1))
 
@@ -212,16 +202,16 @@ class ScreenCapture(QMainWindow):
             self.rubber_band.hide()
 
     def mousePressEvent(self, event):
-        self.start_pos = self.last_pos = event.pos()
+        self.start_pos = self.last_pos = event.position().toPoint()
         self.rubber_band.setGeometry(QRect(self.start_pos, self.last_pos))
         self.rubber_band.show()
 
     def mouseMoveEvent(self, event):
         if self.rubber_band.isVisible():
+            new_pos = event.position().toPoint()
             if QApplication.keyboardModifiers() == Qt.ShiftModifier:
-                offset = event.pos() - self.last_pos
-                self.start_pos += offset
-            self.last_pos = event.pos()
+                self.start_pos += (new_pos - self.last_pos)
+            self.last_pos = new_pos
             self.rubber_band.setGeometry(self._calculate_constrained_rect(self.start_pos, self.last_pos))
 
     def mouseReleaseEvent(self, event):
@@ -235,12 +225,12 @@ class ScreenCapture(QMainWindow):
         QApplication.processEvents()
         if geometry.topLeft() != geometry.bottomRight():
             screen = QApplication.screenAt(self.geometry().topLeft())
-            screenshot = screen.grabWindow(0,geometry.x(),geometry.y(),geometry.width(),geometry.height())
+            screenshot = screen.grabWindow(0, geometry.x(), geometry.y(), geometry.width(), geometry.height())
             self.uploader.enqueue(screenshot)
 
     def _upload_success(self, uri):
         if uri:
-            QApplication.clipboard().setText(uri) 
+            QApplication.clipboard().setText(uri)
             webbrowser.open(uri)
             self.tray.showMessage("Upload Successful", uri)
         else:
@@ -259,8 +249,8 @@ def main():
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     ScreenCapture(save_dir=args.save_dir)
-    sys.exit(app.exec_())
-
+    sys.exit(app.exec())
+    
 
 if __name__ == "__main__":
     main()
